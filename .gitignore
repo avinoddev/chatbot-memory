@@ -1,0 +1,4 @@
+sandbox/*
+user_memory.json
+.venv/
+.env
