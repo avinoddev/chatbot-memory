@@ -1,46 +1,74 @@
 # Chatbot Memory Service
 
-Backend service responsible for managing persistent chat history
-for the Physics Department chatbot.
+Backend API providing persistent, multi-user, multi-thread conversation memory for the Physics Department chatbot.  
+Handles all conversation state and context retrieval for OpenAI.
 
-## Purpose
+---
 
-This service implements:
+## Tech Stack
 
-- User-linked conversation threads
-- Persistent message storage
-- Thread-based memory isolation
-- Basic cross-thread user memory (optional)
-- Controlled history retrieval for LLM context
+- **Python 3.11**
+- **FastAPI**
+- **PostgreSQL**
+- **SQLAlchemy**
+- **OpenAI API**
 
-The model itself does not store memory.
-This service handles all conversation state.
+---
 
-## Architecture
+## Core Features
 
-- Python: 3.11
-- Backend: FastAPI
-- Database: PostgreSQL
-- ORM: SQLAlchemy
-- Deployment: Render (planned)
+- Multi-user support  
+- Multiple threads per user  
+- Persistent message storage  
+- Ordered conversation history retrieval  
+- Context-aware OpenAI integration  
+- Structured error handling  
+
+---
 
 ## Data Model
 
-- Users → can own multiple threads
-- Threads → contain ordered messages
-- Messages → stored with role + content + timestamp
+- **User** → owns multiple threads  
+- **Thread** → contains ordered messages  
+- **Message** → role, content, timestamp  
 
-Each interaction:
-1. Saves user message
-2. Retrieves thread history
-3. Sends history to LLM
-4. Stores assistant response
+### Conversation Flow
+
+1. Save user message  
+2. Retrieve thread history  
+3. Send history to OpenAI  
+4. Save assistant response  
+5. Return assistant response  
+
+---
 
 ## Setup
 
-Create a virtual environment using Python 3.11:
-
+### 1. Create Virtual Environment (Python 3.11)
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
+```
+
+### 2. Install Dependencies
+```bash
 pip install -r requirements.txt
+```
+
+
+### 3. Run the Server
+```bash
+uvicorn app.main:app --reload
+```
+
+Server will run at:
+
+```
+http://127.0.0.1:8000
+```
+
+API documentation available at:
+
+```
+http://127.0.0.1:8000/docs
+```
