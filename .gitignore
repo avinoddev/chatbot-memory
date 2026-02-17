@@ -2,3 +2,4 @@ sandbox/*
 user_memory.json
 .venv/
 .env
+__pycache__/

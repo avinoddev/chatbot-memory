@@ -1,12 +1,16 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from .database import engine, Base, get_db
 from . import models, schemas
+from openai import OpenAI, RateLimitError, APIError, AuthenticationError
+import os
+
 
 app = FastAPI()
 
 Base.metadata.create_all(bind=engine)
 
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 @app.get("/")
 def health_check():
@@ -34,17 +38,26 @@ def create_thread(request: schemas.CreateThreadRequest, db: Session = Depends(ge
 @app.post("/messages")
 def create_message(request: schemas.CreateMessageRequest, db: Session = Depends(get_db)):
 
-    # 1️⃣ Save message
-    message = models.Message(
+     # Validate thread exists
+    thread = db.query(models.Thread).filter(
+        models.Thread.id == request.thread_id
+    ).first()
+
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found")
+
+
+    # Save user message
+    user_message = models.Message(
         thread_id=request.thread_id,
-        role=request.role,
+        role="user",
         content=request.content
     )
 
-    db.add(message)
+    db.add(user_message)
     db.commit()
 
-    # 2️⃣ Retrieve full conversation history
+    # Retrieve full conversation history (including new message)
     messages = (
         db.query(models.Message)
         .filter(models.Message.thread_id == request.thread_id)
@@ -52,12 +65,58 @@ def create_message(request: schemas.CreateMessageRequest, db: Session = Depends(
         .all()
     )
 
-    history = [
+    openai_messages = [
         {"role": m.role, "content": m.content}
         for m in messages
     ]
 
-    return {"history": history}
+    # Send to OpenAI
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=openai_messages,
+        )
+
+        assistant_reply = response.choices[0].message.content
+
+    except RateLimitError as e:
+        raise HTTPException(
+            status_code=429,
+            detail=f"OpenAI quota exceeded:"
+        )
+
+    except AuthenticationError as e:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Invalid OpenAI API key:"
+        )
+        
+    except APIError as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"OpenAI service error:"
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected AI processing error:"
+        )
+
+
+    # Save assistant response
+    assistant_message = models.Message(
+        thread_id=request.thread_id,
+        role="assistant",
+        content=assistant_reply
+    )
+
+    db.add(assistant_message)
+    db.commit()
+
+    # Return assistant response
+    return {"response": assistant_reply}
+
 
 @app.get("/threads/{thread_id}")
 def get_thread(thread_id: str, db: Session = Depends(get_db)):
