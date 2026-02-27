@@ -19,19 +19,43 @@ def health_check():
 
 @app.post("/users")
 def create_user(request: schemas.CreateUserRequest, db: Session = Depends(get_db)):
+
+    existing = db.query(models.User).filter(
+        models.User.email == request.email
+    ).first()
+
+    if existing:
+        return {"user_id": existing.id}
+
     user = models.User(email=request.email)
     db.add(user)
     db.commit()
     db.refresh(user)
-    return {"user_id": user.id}
 
+    # Create default profile
+    profile = models.UserProfile(user_id=user.id)
+    db.add(profile)
+    db.commit()
+
+    return {"user_id": user.id}
 
 @app.post("/threads")
 def create_thread(request: schemas.CreateThreadRequest, db: Session = Depends(get_db)):
+
+    # Validate user exists
+    user = db.query(models.User).filter(
+        models.User.id == request.user_id
+    ).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     thread = models.Thread(user_id=request.user_id)
+
     db.add(thread)
     db.commit()
     db.refresh(thread)
+
     return {"thread_id": thread.id}
 
 
@@ -45,7 +69,6 @@ def create_message(request: schemas.CreateMessageRequest, db: Session = Depends(
 
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
-
 
     # Save user message
     user_message = models.Message(
@@ -148,3 +171,19 @@ def list_threads(db: Session = Depends(get_db)):
         }
         for t in threads
     ]
+
+@app.get("/users/{user_id}")
+def get_user(user_id: str, db: Session = Depends(get_db)):
+
+    user = db.query(models.User).filter(
+        models.User.id == user_id
+    ).first()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    return {
+        "user_id": user.id,
+        "email": user.email,
+        "created_threads": len(user.threads)
+    }
