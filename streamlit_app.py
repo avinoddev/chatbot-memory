@@ -12,11 +12,14 @@ if st.button("Login / Create User"):
         f"{BACKEND_URL}/users",
         json={"email": email}
     )
+
     data = res.json()
+
     st.session_state["user_id"] = data["user_id"]
+    st.session_state["access_token"] = data["access_token"]
+    st.json(data)
 
 if "user_id" in st.session_state:
-
     st.subheader("User Info")
 
     user_res = requests.get(
@@ -28,7 +31,10 @@ if "user_id" in st.session_state:
     if st.button("Create New Thread"):
         thread_res = requests.post(
             f"{BACKEND_URL}/threads",
-            json={"user_id": st.session_state["user_id"]}
+            json={"user_id": st.session_state["user_id"]},
+            headers={
+                "Authorization": f"Bearer {st.session_state['access_token']}"
+            }
         )
         st.session_state["thread_id"] = thread_res.json()["thread_id"]
 
@@ -44,6 +50,9 @@ if "user_id" in st.session_state:
                     "thread_id": st.session_state["thread_id"],
                     "role": "user",
                     "content": message
+                },
+                headers={
+                    "Authorization": f"Bearer {st.session_state['access_token']}"
                 }
             )
 

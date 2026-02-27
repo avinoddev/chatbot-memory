@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Depends, HTTPException
 from sqlalchemy.orm import Session
 from .database import engine, Base, get_db
+from .auth import create_access_token, get_current_user
+from .services.memory import extract_memory, apply_memory
 from . import models, schemas
 from openai import OpenAI, RateLimitError, APIError, AuthenticationError
 import os
@@ -37,10 +39,21 @@ def create_user(request: schemas.CreateUserRequest, db: Session = Depends(get_db
     db.add(profile)
     db.commit()
 
-    return {"user_id": user.id}
+    token = create_access_token({"sub": user.id})
+
+    return {
+        "user_id": user.id,
+        "access_token": token
+    }
 
 @app.post("/threads")
-def create_thread(request: schemas.CreateThreadRequest, db: Session = Depends(get_db)):
+def create_thread(
+    request: schemas.CreateThreadRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user)
+):
+    if user_id != request.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     # Validate user exists
     user = db.query(models.User).filter(
@@ -60,15 +73,20 @@ def create_thread(request: schemas.CreateThreadRequest, db: Session = Depends(ge
 
 
 @app.post("/messages")
-def create_message(request: schemas.CreateMessageRequest, db: Session = Depends(get_db)):
+def create_message(
+    request: schemas.CreateMessageRequest,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_current_user)
+):
 
      # Validate thread exists
     thread = db.query(models.Thread).filter(
-        models.Thread.id == request.thread_id
+        models.Thread.id == request.thread_id,
+        models.Thread.user_id == user_id
     ).first()
 
     if not thread:
-        raise HTTPException(status_code=404, detail="Thread not found")
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     # Save user message
     user_message = models.Message(
@@ -80,7 +98,11 @@ def create_message(request: schemas.CreateMessageRequest, db: Session = Depends(
     db.add(user_message)
     db.commit()
 
-    # Retrieve full conversation history (including new message)
+    # ---- MEMORY EXTRACTION ----
+    events = extract_memory(request.content)
+    apply_memory(db, user_id, events)
+
+    # Retrieve full conversation history
     messages = (
         db.query(models.Message)
         .filter(models.Message.thread_id == request.thread_id)
@@ -88,7 +110,24 @@ def create_message(request: schemas.CreateMessageRequest, db: Session = Depends(
         .all()
     )
 
-    openai_messages = [
+    # Fetch user profile for context injection
+    profile = db.query(models.UserProfile).filter(
+        models.UserProfile.user_id == user_id
+    ).first()
+
+    system_prompt = {
+        "role": "system",
+        "content": f"""
+    User Profile Context:
+    Weaknesses: {profile.weaknesses}
+    Strengths: {profile.strengths}
+    Preferred Level: {profile.preferred_level}
+
+    Adapt explanations accordingly.
+    """
+    }
+
+    openai_messages = [system_prompt] + [
         {"role": m.role, "content": m.content}
         for m in messages
     ]
